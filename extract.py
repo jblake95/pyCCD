@@ -6,6 +6,7 @@ Functions for performing source extraction on CCD images
 
 from utils import pruneNansFromTable
 import sep
+from astropy.table import Table
 
 def subtractBackground(data, mask=None, box_width=32, box_height=32, 
                        filter_width=3, filter_height=3):
@@ -151,38 +152,38 @@ def sourceExtract(data, thresh=3, bkg=False, bkg_rms=None,
     sources = pruneNansFromTable(sources)
     
     if extras:
-		# calculate ellipticity parameter
-		sources['ellipticity'] = 1.0 - (sources['b'] / sources['a'])
-		
-		# calculate full width half maxima
-		sources['fwhm'] = calculateFWHM(sources['a'], sources['b'])
-		
-		# compute kron radii
-		try:
-			sources['kronr'], krflag = sep.kron_radius(data, 
-													   sources['x'], 
-													   sources['y'], 
-													   sources['a'], 
-													   sources['b'], 
-													   sources['theta'], 
-													   6.0)
-			sources['flag'] |= krflag
-		except Exception as e:
-			print(e)
-			pass
-		
-		# compute flux radii
-		try:
-			sources['fluxr'], frflag = sep.flux_radius(data,
-													   sources['x'],
-													   sources['y'],
-													   6.0*sources['a'],
-													   0.5,
-													   subpix=5)
-			sources['flag'] |= frflag
-		except Exception as e:
-			print(e)
-			pass
+        # calculate ellipticity parameter
+        sources['ellipticity'] = 1.0 - (sources['b'] / sources['a'])
+        
+        # calculate full width half maxima
+        sources['fwhm'] = calculateFWHM(sources['a'], sources['b'])
+        
+        # compute kron radii
+        try:
+            sources['kronr'], krflag = sep.kron_radius(data, 
+                                                       sources['x'], 
+                                                       sources['y'], 
+                                                       sources['a'], 
+                                                       sources['b'], 
+                                                       sources['theta'], 
+                                                       6.0)
+            sources['flag'] |= krflag
+        except Exception as e:
+            print(e)
+            pass
+        
+        # compute flux radii
+        try:
+            sources['fluxr'], frflag = sep.flux_radius(data,
+                                                       sources['x'],
+                                                       sources['y'],
+                                                       6.0*sources['a'],
+                                                       0.5,
+                                                       subpix=5)
+            sources['flag'] |= frflag
+        except Exception as e:
+            print(e)
+            pass
     
     if segment:
         return sources, seg_map
@@ -204,3 +205,22 @@ def calculateFWHM(a, b):
         Full width half maxima of sources
     """
     return 2 * np.sqrt(np.log(2) * (a**2 + b**2))
+
+def writeToBinTable(table, outpath):
+    """
+    Write an astropy Table object to a FITS bintable
+    
+    Parameters
+    ----------
+    table : astropy Table object
+        Table containing quantities determined by SEP extraction
+    outpath : str, optional
+        Path to directory in which to place output FITS BINTABLE file
+    
+    Returns
+    -------
+    None
+    """
+    table.write(outpath, format='fits', overwrite=True)
+    
+    return None

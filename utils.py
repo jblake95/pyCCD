@@ -23,3 +23,10 @@ def pruneNansFromTable(table):
         nan_in_row |= np.isnan(table[col])
         
     return table[~nan_in_row]
+
+def getTrailLength(exptime, platescale, rate=15.034):
+    """
+    Calculate a rough estimate of expected trail length based on 
+    an informed rate and exposure time
+    """
+    return (exptime * rate) / platescale
