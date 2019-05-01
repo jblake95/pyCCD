@@ -3,28 +3,30 @@ Align and subtract two overlapping INT WFC FITS CCD images
 ***TODO: generalise to include sidereally tracked images***
 """
 
-from extract import (
-    subtractBackground,
-    sourceExtract,
-    )
 from wcs import (
     convertToDetector,
     convertToWCS,
+    convertToPixels,
     )
-from utils import getTrailLength
-from diagnostics import plotSources
+from diagnostics import plotXY
 import argparse as ap
 import numpy as np
 import cv2
-import sep
+import random
+import warnings
 from astropy.io import fits
+from astropy.table import Table
 from astropy import units as u
+from astropy.utils.exceptions import AstropyWarning
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 
 try:
     FileNotFoundError
 except NameError:
     FileNotFoundError = IOError
+
+# disable astropy warnings - INT WCS is deprecated
+warnings.simplefilter('ignore', category=AstropyWarning)
 
 def argParse():
     """
@@ -71,7 +73,9 @@ if __name__ == "__main__":
 	
 	args = argParse()
 	
-	## load the images, WCS headers and bad pixel mask
+	####################################################################
+	######### load the images, WCS headers and bad pixel mask ##########
+	####################################################################
 	print('Loading image 1...')
 	try:
 		with fits.open(args.img_1) as f1:
@@ -150,86 +154,56 @@ if __name__ == "__main__":
 		print('Bad pixel mask not found...')
 		quit()
 	
-	## feature extraction
-	img_1, bkg_rms = subtractBackground(img_1, 
-	                                    mask=mask)
-	
-	stars_1 = sourceExtract(img_1,
-	                        thresh=5,
-	                        mask=mask,
-	                        bkg_rms=bkg_rms,
-	                        deblend_cont=1.)
-	
-	# change header keywords as appropriate
-	l_trail = getTrailLength(primhdr_1['EXPTIME'],
-	                         primhdr_1['SECPPIX']*primhdr_1['CCDXBIN'])
-	dl_max = 0.2*l_trail
-	
-	# remove bad sources, keep stars
-	remove_idx = []
-	for s, star in enumerate(stars_1):
-		l_sep = np.sqrt((star['xmax'] - star['xmin'])**2 + 
-		                (star['ymax'] - star['ymin'])**2)
-		if abs(l_sep - l_trail) > dl_max:
-			remove_idx.append(s)
-	
-	stars_1.remove_rows(remove_idx)
+	####################################################################
+	################# feature extraction and matching ##################
+	####################################################################
+	# inject random sampling points into image 1
+	x_1 = []
+	y_1 = []
+	while len(x_1) < 1000:
+		x_1.append(random.uniform(0, hdr_1['NAXIS1']))
+		y_1.append(random.uniform(0, hdr_1['NAXIS2']))
 	
 	if args.diagnostics:
-		plotSources(img_1, stars_1, circle=True)
+		plotXY(img_1, x_1, y_1)
 	
-	img_2, bkg_rms = subtractBackground(img_2, 
-	                                    mask=mask)
+	# convert xy to radec
+	xdet_1, ydet_1 = convertToDetector(x_1, 
+	                                   y_1, 
+	                                   hdr_1)
+	ra_1, dec_1 = convertToWCS(xdet_1, 
+	                           ydet_1, 
+	                           wcs_1)
 	
-	stars_2 = sourceExtract(img_2,
-	                        thresh=2,
-	                        mask=mask,
-	                        bkg_rms=bkg_rms,
-	                        deblend_cont=1.)
+	# match with image 2
+	xdet_2, ydet_2 = convertToPixels(ra_1,
+	                                 dec_1,
+	                                 wcs_2)
+	x_2, y_2 = convertToPixels(xdet_2,
+	                           ydet_2,
+	                           hdr_2)
+	matches = Table([x_1, y_1, 
+	                 xdet_1, ydet_1, 
+	                 ra_1, dec_1, 
+	                 xdet_2, ydet_2, 
+	                 x_2, y_2],
+	                 names=['x_1', 'y_1',
+	                        'xdet_1', 'ydet_1',
+	                        'ra_1', 'dec_1',
+	                        'xdet_2', 'ydet_2',
+	                        'x_2', 'y_2'])
 	
-	# change header keywords as appropriate
-	l_trail = getTrailLength(primhdr_2['EXPTIME'],
-	                         primhdr_2['SECPPIX']*primhdr_2['CCDXBIN'])
-	dl_max = 0.2*l_trail
-	
-	# remove bad sources, keep stars
+	# filter out points that don't overlap between the images
 	remove_idx = []
-	for s, star in enumerate(stars_2):
-		l_sep = np.sqrt((star['xmax'] - star['xmin'])**2 + 
-		                (star['ymax'] - star['ymin'])**2)
-		if abs(l_sep - l_trail) > dl_max:
-			remove_idx.append(s)
-	
-	stars_2.remove_rows(remove_idx)
+	for m, match in enumerate(matches):
+		if (match['x_2'] < 0 or
+		    match['x_2'] > hdr_2['NAXIS1'] or
+		    match['y_2'] < 0 or
+		    match['y_2'] > hdr_2['NAXIS2']):
+			   remove_idx.append(m)
+	matches.remove_rows(remove_idx)
 	
 	if args.diagnostics:
-		plotSources(img_2, stars_2, circle=True)
+		plotXY(img_2, matches['x_2'], matches['y_2'])
 	
-	## match features between images
-	xdet_1, ydet_1 = convertToDetector(stars_1['x'],
-									   stars_1['y'],
-									   hdr_1)
-	xdet_2, ydet_2 = convertToDetector(stars_2['x'],
-									   stars_2['y'],
-									   hdr_2)
-	ra_1, dec_1 = convertToWCS(xdet_1,
-							   ydet_1,
-							   wcs_1)
-	ra_2, dec_2 = convertToWCS(xdet_2,
-							   ydet_2,
-							   wcs_2)
-	stars_1['ra'] = ra_1
-	stars_1['dec'] = dec_1
-	stars_2['ra'] = ra_2
-	stars_2['dec'] = dec_2
 	
-	coords_1 = SkyCoord(ra=stars_1['ra'], 
-					    dec=stars_1['dec'],
-					    unit=(u.deg, u.deg))
-	coords_2 = SkyCoord(ra=stars_2['ra'], 
-					    dec=stars_2['dec'],
-					    unit=(u.deg, u.deg))
-	
-	match_idx, match_sep, _ = match_coordinates_sky(coords_1, coords_2)
-	
-	print(sorted(match_sep))

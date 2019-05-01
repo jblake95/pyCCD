@@ -49,3 +49,34 @@ def plotSources(data, sources, circle=False):
     plt.ylabel('y')
     plt.show()
     plt.close(fig)
+
+def plotXY(data, x, y):
+    """
+    Plot xy markers on top of an image
+    
+    Parameters
+    ----------
+    data : array-like
+        Image data for the CCD
+    x, y : array-like
+        xy coords for the markers to be placed
+    
+    Returns
+    -------
+    None
+    """
+    fig, ax = plt.subplots()
+    m, s = np.mean(data), np.std(data)
+    im = ax.imshow(data, interpolation='nearest', cmap='gray',
+                   vmin=m-s, vmax=m+s, origin='lower')
+    
+    for (i, j) in zip(x, y):
+        c = Circle(xy=(i, j), radius=3)
+        c.set_facecolor('none')
+        c.set_edgecolor('red')
+        ax.add_artist(c)
+    
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.show()
+    plt.close(fig)
